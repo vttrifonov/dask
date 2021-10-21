@@ -555,7 +555,7 @@ def numel(x, **kwargs):
     if axis is None:
         prod = np.prod(shape, dtype=dtype)
         return (
-            np.full_like(x, prod, shape=(1,) * len(shape), dtype=dtype)
+            np.full((1,) * len(shape), prod, dtype=dtype)
             if keepdims is True
             else prod
         )
@@ -570,7 +570,7 @@ def numel(x, **kwargs):
         )
     else:
         new_shape = tuple(shape[dim] for dim in range(len(shape)) if dim not in axis)
-    return np.full_like(x, prod, shape=new_shape, dtype=dtype)
+    return np.full(new_shape, prod, dtype=dtype)
 
 
 def nannumel(x, **kwargs):
@@ -780,7 +780,8 @@ def moment_agg(
         if denominator < 0:
             denominator = np.nan
     elif denominator is not np.ma.masked:
-        denominator[denominator < 0] = np.nan
+        #denominator[denominator < 0] = np.nan
+        denominator = np.where(denominator<0, np.nan, denominator)
 
     return divide(M, denominator, dtype=dtype)
 

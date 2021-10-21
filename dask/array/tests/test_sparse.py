@@ -32,18 +32,21 @@ functions = [
     lambda x: da.transpose(x, (1, 2, 0)),
     lambda x: x.sum(),
     lambda x: x.moment(order=0),
-    pytest.param(
+    lambda x: x.mean(axis=0),
+    lambda x: x.std(axis=0),
+    lambda x: x.var(axis=0),
+    #pytest.param(
         lambda x: x.mean(),
-        marks=pytest.mark.xfail(reason="https://github.com/dask/dask/issues/7169"),
-    ),
-    pytest.param(
+    #    marks=pytest.mark.xfail(reason="https://github.com/dask/dask/issues/7169"),
+    #),
+    #pytest.param(
         lambda x: x.std(),
-        marks=pytest.mark.xfail(reason="https://github.com/dask/dask/issues/7169"),
-    ),
-    pytest.param(
+    #    marks=pytest.mark.xfail(reason="https://github.com/dask/dask/issues/7169"),
+    #),
+    #pytest.param(
         lambda x: x.var(),
-        marks=pytest.mark.xfail(reason="https://github.com/dask/dask/issues/7169"),
-    ),
+    #    marks=pytest.mark.xfail(reason="https://github.com/dask/dask/issues/7169"),
+    #),
     lambda x: x.dot(np.arange(x.shape[-1])),
     lambda x: x.dot(np.eye(x.shape[-1])),
     lambda x: da.tensordot(x, np.ones(x.shape[:2]), axes=[(0, 1), (0, 1)]),
