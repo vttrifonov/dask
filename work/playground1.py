@@ -9,4 +9,9 @@ y = x.map_blocks(sparse.COO.from_numpy)
 (x.mean()-y.mean()).compute()
 (x.var()-y.var()).compute()
 
-(x.var(axis=0)-y.var(axis=0)).compute()
+(x.mean(axis=0).compute()-y.mean(axis=0).compute())
+(x.var(axis=0).compute()-y.var(axis=0).compute())
+
+(x.mean(axis=[0,1]).compute()-y.mean(axis=[0,1]).compute())
+(x.var(axis=[0,1]).compute()-y.var(axis=[0,1]).compute())
+
