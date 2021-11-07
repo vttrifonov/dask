@@ -555,8 +555,7 @@ def numel(x, **kwargs):
     if axis is None:
         prod = np.prod(shape, dtype=dtype)
         return (
-            np.full((1,) * len(shape), prod, dtype=dtype)
-#            np.full_like(x, prod, shape=(1,) * len(shape), dtype=dtype)
+            np.full_like(x, prod, shape=(1,) * len(shape), dtype=dtype)
             if keepdims is True
             else prod
         )
@@ -571,8 +570,7 @@ def numel(x, **kwargs):
         )
     else:
         new_shape = tuple(shape[dim] for dim in range(len(shape)) if dim not in axis)
-    return np.full(new_shape, prod, dtype=dtype)
-#    return np.full_like(x, prod, shape=new_shape, dtype=dtype)
+    return np.full_like(x, prod, shape=new_shape, dtype=dtype)
 
 
 def nannumel(x, **kwargs):
@@ -671,138 +669,6 @@ def nanmean(a, axis=None, dtype=None, keepdims=False, split_every=None, out=None
         concatenate=False,
         combine=partial(mean_combine, sum=chunk.nansum, numel=nannumel),
     )
-
-def moment_chunk1(
-    A, order=2, sum=chunk.sum, numel=numel, dtype="f8", computing_meta=False, **kwargs
-):
-    if computing_meta:
-        return A
-    n = numel(A, **kwargs)
-    n = n.astype(np.int64)
-    M = [sum(A**i, dtype=dtype, **kwargs) for i in range(1, order + 1)]
-    M = np.stack(M, axis=-1)
-    return {"n": n, "M": M}
-
-def moment_combine1(
-    pairs,
-    order=2,
-    ddof=0,
-    dtype="f8",
-    sum=np.sum,
-    axis=None,
-    computing_meta=False,
-    **kwargs,
-):
-    if not isinstance(pairs, list):
-        pairs = [pairs]
-
-    kwargs["dtype"] = dtype
-    kwargs["keepdims"] = True
-
-    n = deepmap(lambda pair: pair["n"], pairs) if not computing_meta else pairs
-    n = _concatenate2(n, axes=axis)
-    n = n.sum(axis=axis, **kwargs)
-
-    if computing_meta:
-        return n
-
-    M = deepmap(lambda pair: pair["M"], pairs)
-    M = _concatenate2(M, axes=axis)
-    M = M.sum(axis=axis, **kwargs)
-
-    return {"n": n, "M": M}
-
-
-def moment_agg1(
-    pairs,
-    order=2,
-    ddof=0,
-    dtype="f8",
-    sum=np.sum,
-    axis=None,
-    computing_meta=False,
-    **kwargs,
-):
-    if not isinstance(pairs, list):
-        pairs = [pairs]
-
-    kwargs["dtype"] = dtype
-    # To properly handle ndarrays, the original dimensions need to be kept for
-    # part of the calculation.
-    keepdim_kw = kwargs.copy()
-    keepdim_kw["keepdims"] = True
-
-    n = deepmap(lambda pair: pair["n"], pairs) if not computing_meta else pairs
-    n = _concatenate2(n, axes=axis)
-    n = n.sum(axis=axis, **keepdim_kw)
-
-    if computing_meta:
-        return n
-
-    Ms = deepmap(lambda pair: pair["M"], pairs)
-    Ms = _concatenate2(Ms, axes=axis)
-    Ms = Ms.sum(axis=axis, **kwargs)        
-    
-    n = n.sum(axis=axis, **kwargs)
-
-    mu = Ms[...,0]/n
-    M = 0
-    mu1 = 1
-    coef = 1
-    for k in range(order):
-        M = M + coef * (Ms[...,order-k-1]/n) * mu1
-        coef = - (coef * (order-k))/(k+1)
-        mu1 = mu * mu1
-    M = M + coef * mu1        
-    M = M*n
-
-    d = n - ddof
-    if isinstance(d, Number):
-        if d < 0:
-            d = np.nan
-    elif d is not np.ma.masked:
-        d = np.where(d<0, np.nan, d)    
-    M = divide(M, d, dtype=dtype)
-
-    return M
-
-
-def moment1(
-    a, order, axis=None, dtype=None, keepdims=False, ddof=0, split_every=None, out=None
-):
-    if not isinstance(order, Integral) or order < 0:
-        raise ValueError("Order must be an integer >= 0")
-
-    if order < 2:
-        reduced = a.sum(axis=axis)  # get reduced shape and chunks
-        if order == 0:
-            # When order equals 0, the result is 1, by definition.
-            return ones(
-                reduced.shape, chunks=reduced.chunks, dtype="f8", meta=reduced._meta
-            )
-        # By definition the first order about the mean is 0.
-        return zeros(
-            reduced.shape, chunks=reduced.chunks, dtype="f8", meta=reduced._meta
-        )
-
-    if dtype is not None:
-        dt = dtype
-    else:
-        dt = getattr(np.var(np.ones(shape=(1,), dtype=a.dtype)), "dtype", object)
-    return reduction(
-        a,
-        partial(moment_chunk1, order=order),
-        partial(moment_agg1, order=order, ddof=ddof),
-        axis=axis,
-        keepdims=keepdims,
-        dtype=dt,
-        split_every=split_every,
-        out=out,
-        concatenate=False,
-        combine=partial(moment_combine1, order=order),
-    )
-
-
 
 
 def moment_chunk(
@@ -914,8 +780,7 @@ def moment_agg(
         if denominator < 0:
             denominator = np.nan
     elif denominator is not np.ma.masked:
-        #denominator[denominator < 0] = np.nan
-        denominator = np.where(denominator<0, np.nan, denominator)
+        denominator[denominator < 0] = np.nan
 
     return divide(M, denominator, dtype=dtype)
 
@@ -964,13 +829,13 @@ def var(a, axis=None, dtype=None, keepdims=False, ddof=0, split_every=None, out=
         dt = getattr(np.var(np.ones(shape=(1,), dtype=a.dtype)), "dtype", object)
     return reduction(
         a,
-        moment_chunk1,
-        partial(moment_agg1, ddof=ddof),
+        moment_chunk,
+        partial(moment_agg, ddof=ddof),
         axis=axis,
         keepdims=keepdims,
         dtype=dt,
         split_every=split_every,
-        combine=moment_combine1,
+        combine=moment_combine,
         name="var",
         out=out,
         concatenate=False,
