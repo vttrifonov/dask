@@ -555,7 +555,7 @@ def numel(x, **kwargs):
     if axis is None:
         prod = np.prod(shape, dtype=dtype)
         return (
-            np.full_like(x, prod, shape=(1,) * len(shape), dtype=dtype)
+            np.full((1,) * len(shape), prod, dtype=dtype)
             if keepdims is True
             else prod
         )
@@ -570,7 +570,7 @@ def numel(x, **kwargs):
         )
     else:
         new_shape = tuple(shape[dim] for dim in range(len(shape)) if dim not in axis)
-    return np.full_like(x, prod, shape=new_shape, dtype=dtype)
+    return np.full(new_shape, prod, dtype=dtype)
 
 
 def nannumel(x, **kwargs):
@@ -671,31 +671,20 @@ def nanmean(a, axis=None, dtype=None, keepdims=False, split_every=None, out=None
     )
 
 
+# calculations for moments about the mean, calculate moments about the origin
+# in the chunk/combine phases and then combine those to produce moments about the mean
+# in the agg phase
+
 def moment_chunk(
     A, order=2, sum=chunk.sum, numel=numel, dtype="f8", computing_meta=False, **kwargs
 ):
     if computing_meta:
         return A
     n = numel(A, **kwargs)
-
     n = n.astype(np.int64)
-    total = sum(A, dtype=dtype, **kwargs)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        u = total / n
-    xs = [sum((A - u) ** i, dtype=dtype, **kwargs) for i in range(2, order + 1)]
-    M = np.stack(xs, axis=-1)
-    return {"total": total, "n": n, "M": M}
-
-
-def _moment_helper(Ms, ns, inner_term, order, sum, axis, kwargs):
-    M = Ms[..., order - 2].sum(axis=axis, **kwargs) + sum(
-        ns * inner_term ** order, axis=axis, **kwargs
-    )
-    for k in range(1, order - 1):
-        coeff = factorial(order) / (factorial(k) * factorial(order - k))
-        M += coeff * sum(Ms[..., order - k - 2] * inner_term ** k, axis=axis, **kwargs)
-    return M
-
+    M = [sum(A**i, dtype=dtype, **kwargs) for i in range(1, order + 1)]
+    M = np.stack(M, axis=-1)
+    return {"n": n, "M": M}
 
 def moment_combine(
     pairs,
@@ -713,29 +702,18 @@ def moment_combine(
     kwargs["dtype"] = dtype
     kwargs["keepdims"] = True
 
-    ns = deepmap(lambda pair: pair["n"], pairs) if not computing_meta else pairs
-    ns = _concatenate2(ns, axes=axis)
-    n = ns.sum(axis=axis, **kwargs)
+    n = deepmap(lambda pair: pair["n"], pairs) if not computing_meta else pairs
+    n = _concatenate2(n, axes=axis)
+    n = n.sum(axis=axis, **kwargs)
 
     if computing_meta:
         return n
 
-    totals = _concatenate2(deepmap(lambda pair: pair["total"], pairs), axes=axis)
-    Ms = _concatenate2(deepmap(lambda pair: pair["M"], pairs), axes=axis)
+    M = deepmap(lambda pair: pair["M"], pairs)
+    M = _concatenate2(M, axes=axis)
+    M = M.sum(axis=axis, **kwargs)
 
-    total = totals.sum(axis=axis, **kwargs)
-
-    with np.errstate(divide="ignore", invalid="ignore"):
-        mu = divide(total, n, dtype=dtype)
-        inner_term = divide(totals, ns, dtype=dtype) - mu
-
-    xs = [
-        _moment_helper(Ms, ns, inner_term, o, sum, axis, kwargs)
-        for o in range(2, order + 1)
-    ]
-    M = np.stack(xs, axis=-1)
-    return {"total": total, "n": n, "M": M}
-
+    return {"n": n, "M": M}
 
 def moment_agg(
     pairs,
@@ -756,34 +734,39 @@ def moment_agg(
     keepdim_kw = kwargs.copy()
     keepdim_kw["keepdims"] = True
 
-    ns = deepmap(lambda pair: pair["n"], pairs) if not computing_meta else pairs
-    ns = _concatenate2(ns, axes=axis)
-    n = ns.sum(axis=axis, **keepdim_kw)
+    n = deepmap(lambda pair: pair["n"], pairs) if not computing_meta else pairs
+    n = _concatenate2(n, axes=axis)
+    n = n.sum(axis=axis, **keepdim_kw)
 
     if computing_meta:
         return n
 
-    totals = _concatenate2(deepmap(lambda pair: pair["total"], pairs), axes=axis)
-    Ms = _concatenate2(deepmap(lambda pair: pair["M"], pairs), axes=axis)
+    Ms = deepmap(lambda pair: pair["M"], pairs)
+    Ms = _concatenate2(Ms, axes=axis)
+    Ms = Ms.sum(axis=axis, **kwargs)        
+    
+    n = n.sum(axis=axis, **kwargs)
 
-    mu = divide(totals.sum(axis=axis, **keepdim_kw), n, dtype=dtype)
+    # this is based on the formula for converting moments about the origin to moments about the mean
+    # see https://en.wikipedia.org/wiki/Central_moment
+    mu = Ms[...,0]/n
+    M = 0
+    coef = 1
+    for k in range(order):
+        M = M + (Ms[...,order-k-1]/n) * coef
+        coef = - (coef * (order-k))/(k+1) * mu
+    M = M + coef
+    M = M*n
 
-    with np.errstate(divide="ignore", invalid="ignore"):
-        inner_term = divide(totals, ns, dtype=dtype) - mu
+    d = n - ddof
+    if isinstance(d, Number):
+        if d < 0:
+            d = np.nan
+    elif d is not np.ma.masked:
+        d = np.where(d<0, np.nan, d)    
+    M = divide(M, d, dtype=dtype)
 
-    M = _moment_helper(Ms, ns, inner_term, order, sum, axis, kwargs)
-
-    denominator = n.sum(axis=axis, **kwargs) - ddof
-
-    # taking care of the edge case with empty or all-nans array with ddof > 0
-    if isinstance(denominator, Number):
-        if denominator < 0:
-            denominator = np.nan
-    elif denominator is not np.ma.masked:
-        denominator[denominator < 0] = np.nan
-
-    return divide(M, denominator, dtype=dtype)
-
+    return M
 
 def moment(
     a, order, axis=None, dtype=None, keepdims=False, ddof=0, split_every=None, out=None
