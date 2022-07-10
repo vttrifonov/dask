@@ -1,3 +1,10 @@
+import numpy as np
+from numbers import Integral, Number
+from dask.array import chunk
+from dask.utils import deepmap
+from dask.array.core import _concatenate2
+from dask.array.wrap import ones, zeros
+
 def numel(x, **kwargs):
     """A reduction to count the number of elements"""
 
