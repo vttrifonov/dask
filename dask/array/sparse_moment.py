@@ -1,9 +1,9 @@
 import numpy as np
-from numbers import Integral, Number
+from numbers import  Number
 from dask.array import chunk
 from dask.utils import deepmap
 from dask.array.core import _concatenate2
-from dask.array.wrap import ones, zeros
+from dask.array.reductions import divide
 
 def numel(x, **kwargs):
     """A reduction to count the number of elements"""
@@ -134,40 +134,3 @@ def moment_agg(
     M = divide(M, d, dtype=dtype)
 
     return M
-
-def moment(
-    a, order, axis=None, dtype=None, keepdims=False, ddof=0, split_every=None, out=None
-):
-    if not isinstance(order, Integral) or order < 0:
-        raise ValueError("Order must be an integer >= 0")
-
-    if order < 2:
-        reduced = a.sum(axis=axis)  # get reduced shape and chunks
-        if order == 0:
-            # When order equals 0, the result is 1, by definition.
-            return ones(
-                reduced.shape, chunks=reduced.chunks, dtype="f8", meta=reduced._meta
-            )
-        # By definition the first order about the mean is 0.
-        return zeros(
-            reduced.shape, chunks=reduced.chunks, dtype="f8", meta=reduced._meta
-        )
-
-    if dtype is not None:
-        dt = dtype
-    else:
-        dt = getattr(np.var(np.ones(shape=(1,), dtype=a.dtype)), "dtype", object)
-    return reduction(
-        a,
-        partial(moment_chunk, order=order),
-        partial(moment_agg, order=order, ddof=ddof),
-        axis=axis,
-        keepdims=keepdims,
-        dtype=dt,
-        split_every=split_every,
-        out=out,
-        concatenate=False,
-        combine=partial(moment_combine, order=order),
-    )
-
-
